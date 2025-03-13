@@ -1,0 +1,86 @@
+import dash
+import pandas as pd
+import plotly.express as px
+from dash import Dash, Input, Output, callback, dcc, html
+
+URL = "https://cf-courses-data.s3.us.cloud-object-storage.appdomain.cloud/IBMDeveloperSkillsNetwork-DV0101EN-SkillsNetwork/Data%20Files/historical_automobile_sales.csv"
+df = pd.read_csv(URL)
+df_rec = df[df["Recession"] == 1]
+
+vehicle_names = {
+    "Supperminicar": "Super Mini Car", "Mediumfamilycar": "Medium Family Car", 
+    "Smallfamiliycar": "Small Family Car", "Sports": "Sports Car", "Executivecar": "Executive Car"
+}
+
+label_names = {
+    "Automobile_Sales": "Automobile Sales", "Vehicle_Type": "Vehicle Type", 
+    "Advertising_Expenditure": "Advertising Expenditure", "unemployment_rate": "Unemployment Rate"
+}
+
+app = Dash(__name__, external_scripts=[{"src": "https://cdn.tailwindcss.com"}])
+app.config.suppress_callback_exceptions = True
+
+app.layout = html.Main(
+    children=[
+        html.H1("Automobile Sales Statistics Dashboard", className="mt-8 text-4xl font-bold text-gray-900 sm:text-6xl"),
+        html.Div([
+            html.Label("Select Report Type:", className="text-base font-semibold text-gray-900", htmlFor="input-report"),
+            html.P("Which report would you like to display, yearly or recession?", className="text-sm text-gray-500"),
+            dcc.Dropdown(
+                options=[{"label": "Yearly Statistics", "value": "Yearly"}, {"label": "Recession Period Statistics", "value": "Recession"}],
+                value="Yearly", id="input-report"
+            ),
+        ], className="mt-4"),
+
+        html.Div([
+            html.Label("Year:", className="text-base font-semibold text-gray-900", htmlFor="input-year"),
+            html.P("Which year would you like to display for the yearly report?", className="text-sm text-gray-500"),
+            dcc.Dropdown(
+                options=[{"label": str(year), "value": year} for year in sorted(df.Year.unique())], 
+                value=2005, id="input-year", disabled=True
+            ),
+        ], className="mt-4"),
+
+        html.Section([
+            dcc.Graph(id="plot-1"), dcc.Graph(id="plot-2"), dcc.Graph(id="plot-3"), dcc.Graph(id="plot-4")
+        ], className="flex flex-wrap items-center justify-center"),
+    ],
+    className="flex flex-col items-center"
+)
+
+@app.callback(Output("input-year", "disabled"), Input("input-report", "value"))
+def toggle_year(report_value):
+    return report_value == "Recession"
+
+@app.callback(
+    [Output("plot-1", "figure"), Output("plot-2", "figure"), Output("plot-3", "figure"), Output("plot-4", "figure")],
+    [Input("input-report", "value"), Input("input-year", "value")]
+)
+def update_graphs(report_value, entered_year):
+    return recession_graphs() if report_value == "Recession" else year_graphs(entered_year)
+
+def generate_graphs(df_filtered, title_prefix, is_recession=False):
+    line_fig = px.line(df_filtered.groupby("Year")["Automobile_Sales"].mean().reset_index(), x="Year", y="Automobile_Sales", title=f"{title_prefix} - Avg Sales by Year", color_discrete_sequence=["#C45A9A"], labels=label_names)
+
+    bar_df = df_filtered.groupby("Vehicle_Type")["Automobile_Sales"].mean().reset_index()
+    bar_df["Vehicle_Type"] = bar_df["Vehicle_Type"].map(vehicle_names)
+    bar_fig = px.bar(bar_df, x="Vehicle_Type", y="Automobile_Sales", title=f"{title_prefix} - Avg Sales by Vehicle Type", color_discrete_sequence=["#C45A9A"], labels=label_names)
+
+    pie_df = df_filtered.groupby("Vehicle_Type")["Advertising_Expenditure"].sum().reset_index()
+    pie_df["Vehicle_Type"] = pie_df["Vehicle_Type"].map(vehicle_names)
+    pie_fig = px.pie(pie_df, values="Advertising_Expenditure", names="Vehicle_Type", title=f"{title_prefix} - Ad Expenditure by Vehicle Type", labels=label_names)
+
+    bar2_df = df_filtered.groupby(["Vehicle_Type", "unemployment_rate"])["Automobile_Sales"].sum().reset_index()
+    bar2_fig = px.bar(bar2_df, x="unemployment_rate", y="Automobile_Sales", color="Vehicle_Type", title=f"{title_prefix} - Sales by Vehicle Type and Unemployment Rate", labels=label_names)
+
+    return [line_fig, bar_fig, pie_fig, bar2_fig] if is_recession else [line_fig, bar_fig, pie_fig]
+
+def recession_graphs():
+    return generate_graphs(df_rec, "Recession Period Statistics", is_recession=True)
+
+def year_graphs(entered_year):
+    df_year = df[df["Year"] == entered_year]
+    return generate_graphs(df_year, f"Yearly Statistics for {entered_year}")
+
+if __name__ == "__main__":
+    app.run_server()
